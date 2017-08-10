@@ -6,8 +6,12 @@
 #include <ESP8266WebServer.h>
 #include <DNSServer.h>
 //#include "html_server.h"
-#include "TimeClient.h"
+//#include "TimeClient.h"
 #include "eeprom_funcs.h"
+#include "TimeLib.h"
+#include "TimeAlarms.h"
+#include <WiFiUdp.h>         // for UDP NTP
+
 
 // Software SPI (slower updates, more flexible pin options):
 // pin 13 - Serial clock out (SCLK)
@@ -17,14 +21,17 @@
 // pin 0 - LCD reset (RST)
 Adafruit_PCD8544 display = Adafruit_PCD8544(13, 12, 14, 2, 0);
 
-float utcOffset = 3; // enter your UTC
-TimeClient timeClient(utcOffset);
-int clockDelay = 1000 ; // clock update period
-int updateDelay = 30*60*1000 ; // time server verify period min*sec*millis
-unsigned long clockUpdate = 0 ; //
-unsigned long timeUpdate = 0 ; //
-void syncPrint () ;
-void timePrint ();
+unsigned long previousMillis = 0;
+const long interval = 1000;
+
+WiFiUDP Udp;
+unsigned int localPort = 8888;
+ 
+// NTP Servers:
+IPAddress timeServer(195, 186, 4, 101); // 195.186.4.101 (bwntp2.bluewin.ch)
+const char* ntpServerName = "ch.pool.ntp.org";
+const int timeZone = 3;     // Central European Time (summer time)
+ 
 
 //SSID and Password for ESP8266
 const char* def_ssid = "RESP8266";
@@ -32,7 +39,7 @@ const char* def_password = "visonic123";
 IPAddress apIP(192, 168, 0, 1);
 const char *myHostname = "polivalka";
 
-int timeout = 0;
+AlarmId id;
 
 ESP8266WebServer server(80);
 const byte DNS_PORT = 53;
@@ -43,22 +50,32 @@ bool ledState = false;
 
 char interruption_happened = 0;
 
-
 void handleAPSettings(void);
 void handleSubmitAP(void);
 void handleInterrupt(void);
 void handleRoot();
 void handleNotFound();
 
+void Repeats() {
+  Serial.println("15 second timer");
+}
+
+void EveningAlarm(){
+  Serial.println("Evernyng!!!");
+}
+
 
 void setup()   {
   char ssid[SSID_SIZE];
   char pw[PW_SIZE];
 
+  int timeout = 0;
+
   pinMode(5, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(5), handleInterrupt, FALLING);
   
-  //Serial.begin(9600);
+  Serial.begin(9600);
+  Serial.println("Start esp8266");
   // Init display
   display.begin();
   display.setContrast(50);
@@ -106,7 +123,7 @@ void setup()   {
     display.println("Connect to AP");
     display.println(ssid);
     display.setCursor(0,20);
-    timeout = 20;
+    timeout = 60;
     while (WiFi.status() != WL_CONNECTED && timeout > 0){
       display.print(".");
       if (dot_n == 4){
@@ -128,7 +145,6 @@ void setup()   {
       display.println("Cant't connect to AP");
       display.println("Going to restart...");
       display.display();
-      reset_wifi_configured();
       delay(5000);
       ESP.restart();
     }  
@@ -143,6 +159,7 @@ void setup()   {
     delay(2000);
 
     server.on("/", handleRoot);
+    server.on("/setup", handleSetup);
     server.on ( "/led=1", handleRoot);
     server.on ( "/led=0", handleRoot);
     server.on ( "/inline", []() {
@@ -154,10 +171,16 @@ void setup()   {
     pinMode ( ledPin, OUTPUT );
     digitalWrite (ledPin, 1);
 
-    clockUpdate = millis () ; //
-    timeUpdate = millis () ; //
+    Udp.begin(localPort);
+    setSyncProvider(getNtpTime);
+    setSyncInterval(60);
+    //setTime(8,29,0,1,1,11);
+    //Serial.println("Set time");
+    //setTime(H,M,S,8,9,17); // set time to Saturday 8:29:00am Jan 1 2011
+    Alarm.timerRepeat(15, Repeats);
+    Alarm.alarmRepeat(15,13,0, EveningAlarm);
 
-    timeClient.updateTime();
+    digitalClockDisplay();
   }
 
   server.begin();
@@ -185,7 +208,7 @@ void loop() {
    delay(2000);
    ESP.restart();
   }
-  
+  /* 
   if (is_wifi_configured() == 1){
     unsigned long currentMillis = millis();
      if ((currentMillis - timeUpdate) < 3000){
@@ -203,37 +226,32 @@ void loop() {
     }
     display.display();
   }
-
+*/
+  if (is_wifi_configured() == 1){
+    timePrint();
+    Alarm.delay(1000);
+  }
 }
 
 void timePrint () {
-//  String time = timeClient.getFormattedTime();
-  String H = timeClient.getHours();
-  String M = timeClient.getMinutes();
-  String S = timeClient.getSeconds();
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.print(day());
+  display.print(".");
+  display.print(month());
+  display.print(".");
+  display.print(year());
   display.setCursor(1,24);
-//  display.print(time);
   display.setTextSize(3);
-  display.print(H);
+  display.print(hour());
   display.setCursor(47,24);
   display.setTextSize(3);
-  display.print(M);
+  display.print(minute());
   display.setTextSize(1);
   display.setCursor(35,24);
-  display.print(S);
-  //display.display ();
+  display.print(second());
+  display.display ();
 }
-
-void syncPrint () {
-   display.clearDisplay();
-   display.setTextSize(1);
-   display.setCursor(0,0);
-   display.print("Chewck clock");
-   display.setCursor(0,8);
-   display.print("time.nist.gov");
-   display.display ();
-}
-
 
 void handleAPSettings() {
    if (captivePortal()) { // If caprive portal redirect instead of displaying the page.
@@ -329,6 +347,47 @@ void handleRoot() {
   //digitalWrite (4, 1 );
 }
 
+void handleSetup() {
+  char html[1000];
+   // Build an HTML page to display on the web-server root address
+  snprintf ( html, 1000,
+"<html>\
+  <head>\
+    <meta http-equiv='refresh' content='10'/>\
+    <title>ESP8266 WiFi Network</title>\
+    <style>\
+      body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; font-size: 1.5em; Color: #000000; }\
+      h1 { Color: #AA0000; }\
+    </style>\
+  </head>\
+  <body>\
+    <h1>ESP8266 scheduler</h1>\
+    <form action='/submit_schedulerp' method='POST'>\
+      <input type="checkbox" name="monday" value="M">M<br>\
+      <input type="checkbox" name="tuesday" value="T">T<br>\
+      <input type="checkbox" name="wednesday" value="W">W<br>\
+      <input type="checkbox" name="thursday" value="Th">Th<br>\
+      <input type="checkbox" name="friday" value="F">F<br>\
+      <input type="checkbox" name="saturday" value="St">St<br>\
+      <input type="checkbox" name="sunday" value="S">S<br>\
+      <input type='text' name='hour'><br>\
+      <input type='text' name='minute'><br>\
+      <input type="submit" value="Submit">\
+    </form>\
+    <form action='/submit' method='POST'>\
+      <input type='text' name='fname'><br>\
+      <input type='submit' value='Submit'>\
+    </form>\
+    <p>This page refreshes every 10 seconds. Click <a href=\"javascript:window.location.reload();\">here</a> to refresh the page now.</p>\
+  </body>\
+</html>",
+
+             hr, min % 60, sec % 60,
+             ledText);
+  server.send ( 200, "text/html", html );
+  //digitalWrite (4, 1 );
+}
+
 void handleNotFound() {
   //digitalWrite ( LED_BUILTIN, 0 );
   String message = "File Not Found\n\n";
@@ -374,10 +433,23 @@ void handleInterrupt() {
 
 
 void handleSubmit() {
+  String hour;
+  String minute;
   if (server.args() > 0 ) {
     for ( uint8_t i = 0; i < server.args(); i++ ) {
-      if (server.argName(i) == "fname") {
-        timeout = server.arg(i).toInt();
+/*
+      <input type="checkbox" name="monday" value="M">M<br>\
+      <input type="checkbox" name="tuesday" value="T">T<br>\
+      <input type="checkbox" name="wednesday" value="W">W<br>\
+      <input type="checkbox" name="thursday" value="Th">Th<br>\
+      <input type="checkbox" name="friday" value="F">F<br>\
+      <input type="checkbox" name="saturday" value="St">St<br>\
+      <input type="checkbox" name="sunday" value="S">S<br>\
+      <input type='text' name='hour'><br>\
+      <input type='text' name='minute'><br>\
+ */
+      
+      if (server.argName(i) == "monday") {
         display.clearDisplay();
         display.setCursor(0, 5);
         display.print("Val:");
@@ -390,4 +462,79 @@ void handleSubmit() {
   server.send ( 302, "text/plain", "");;
 }
 
+/*-------- NTP code ----------*/
+
+const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
+byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
+
+time_t getNtpTime()
+{
+  while (Udp.parsePacket() > 0) ; // discard any previously received packets
+  Serial.println("Transmit NTP Request");
+  sendNTPpacket(timeServer);
+  uint32_t beginWait = millis();
+  while (millis() - beginWait < 1500) {
+    int size = Udp.parsePacket();
+    if (size >= NTP_PACKET_SIZE) {
+      Serial.println("Receive NTP Response");
+      Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      unsigned long secsSince1900;
+      // convert four bytes starting at location 40 to a long integer
+      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+    }
+  }
+  Serial.println("No NTP Response :-(");
+  return 0; // return 0 if unable to get the time
+}
+
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address)
+{
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12]  = 49;
+  packetBuffer[13]  = 0x4E;
+  packetBuffer[14]  = 49;
+  packetBuffer[15]  = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  Udp.beginPacket(address, 123); //NTP requests are to port 123
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
+
+/*-------- Serial Debug Code ----------*/
+
+void digitalClockDisplay() {
+  // digital clock display of the time
+  Serial.print(hour());
+  printDigits(minute());
+  printDigits(second());
+  Serial.print(" ");
+  Serial.print(day());
+  Serial.print(".");
+  Serial.print(month());
+  Serial.print(".");
+  Serial.print(year());
+  Serial.println("");
+}
+
+void printDigits(int digits) {
+  // utility for digital clock display: prints preceding colon and leading 0
+  Serial.print(":");
+  if (digits < 10)
+    Serial.print('0');
+  Serial.print(digits);
+}
 

@@ -75,3 +75,25 @@ void get_pw(char *dest)
     dest[addr] = (char)EEPROM.read(addr + PW_ADDR);
   }
 }
+
+void read_scheduler(struct Scheduler *scheduler){
+  byte days = 0;
+  days = EEPROM.read(DAYS_ADDR);
+  scheduler->_week.days.monday = ((days >> 0) & 0x1);
+  scheduler->_week.days.tuesday = ((days >> 1) & 0x1);
+  scheduler->_week.days.wednesday = ((days >> 2) & 0x1);
+  scheduler->_week.days.thursday = ((days >> 3) & 0x1);
+  scheduler->_week.days.friday = ((days >> 4) & 0x1);
+  scheduler->_week.days.saturday = ((days >> 5) & 0x1);
+  scheduler->_week.days.sunday = ((days >> 6) & 0x1);
+
+  scheduler->_time.hour = EEPROM.read(HOUR_ADDR);
+  scheduler->_time.minute = EEPROM.read(MINUTE_ADDR);
+}
+
+void save_scheduler(struct Scheduler *scheduler){
+  eeprom_write_byte(DAYS_ADDR, scheduler->_week.all);
+  eeprom_write_byte(HOUR_ADDR, scheduler->_time.hour);
+  eeprom_write_byte(MINUTE_ADDR, scheduler->_time.minute);
+}
+

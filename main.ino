@@ -11,6 +11,7 @@
 #include "TimeLib.h"
 #include "TimeAlarms.h"
 #include <WiFiUdp.h>         // for UDP NTP
+#include "HashMap.h"
 
 
 // Software SPI (slower updates, more flexible pin options):
@@ -49,6 +50,8 @@ const int ledPin = D2; // an LED is connected to NodeMCU pin D1 (ESP8266 GPIO5) 
 bool ledState = false;
 
 char interruption_happened = 0;
+
+Scheduler my_scheduler;
 
 void handleAPSettings(void);
 void handleSubmitAP(void);
@@ -154,12 +157,14 @@ void setup()   {
     display.println("Connected!");
     display.println("IP address:");
     IPAddress ip = WiFi.localIP();
+    Serial.println(ip);
     display.println(ip);
     display.display();
     delay(2000);
 
     server.on("/", handleRoot);
     server.on("/setup", handleSetup);
+    server.on("/submit_scheduler", handleSubmit);
     server.on ( "/led=1", handleRoot);
     server.on ( "/led=0", handleRoot);
     server.on ( "/inline", []() {
@@ -181,6 +186,9 @@ void setup()   {
     Alarm.alarmRepeat(15,13,0, EveningAlarm);
 
     digitalClockDisplay();
+
+
+    read_scheduler(&my_scheduler);
   }
 
   server.begin();
@@ -227,10 +235,12 @@ void loop() {
     display.display();
   }
 */
+/*
   if (is_wifi_configured() == 1){
     timePrint();
     Alarm.delay(1000);
   }
+  */
 }
 
 void timePrint () {
@@ -296,6 +306,7 @@ void handleAPSettings() {
 }
 
 void handleRoot() {
+  Serial.println("inside root callback");
   digitalWrite (ledPin, server.arg("led").toInt());
   ledState = digitalRead(ledPin);
 
@@ -348,13 +359,42 @@ void handleRoot() {
 }
 
 void handleSetup() {
+  Serial.println("inside setup callback");
   char html[1000];
-   // Build an HTML page to display on the web-server root address
+  char monday[15];
+  char tuesday[15];
+  char wednesday[15];
+  char thursday[15];
+  char friday[15];
+  char saturday[15];
+  char sunday[15];
+  read_scheduler(&my_scheduler);
+  if (my_scheduler._week.days.monday == 1) {
+    strcpy(monday, "checked='on'");
+  }
+  if (my_scheduler._week.days.tuesday == 1) {
+    strcpy(tuesday, "checked='on'");
+  }
+  if (my_scheduler._week.days.wednesday == 1) {
+    strcpy(wednesday, "checked='on'");
+  }
+  if (my_scheduler._week.days.thursday == 1) {
+    strcpy(thursday, "checked='on'");
+  }
+  if (my_scheduler._week.days.friday == 1) {
+    strcpy(friday, "checked='on'");
+  }
+  if (my_scheduler._week.days.saturday == 1) {
+    strcpy(saturday, "checked='on'");
+  }
+  if (my_scheduler._week.days.sunday == 1) {
+    strcpy(sunday, "checked='on'");
+  }
+  
   snprintf ( html, 1000,
 "<html>\
   <head>\
-    <meta http-equiv='refresh' content='10'/>\
-    <title>ESP8266 WiFi Network</title>\
+    <title>ESP8266 Scheduler</title>\
     <style>\
       body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; font-size: 1.5em; Color: #000000; }\
       h1 { Color: #AA0000; }\
@@ -362,28 +402,20 @@ void handleSetup() {
   </head>\
   <body>\
     <h1>ESP8266 scheduler</h1>\
-    <form action='/submit_schedulerp' method='POST'>\
-      <input type="checkbox" name="monday" value="M">M<br>\
-      <input type="checkbox" name="tuesday" value="T">T<br>\
-      <input type="checkbox" name="wednesday" value="W">W<br>\
-      <input type="checkbox" name="thursday" value="Th">Th<br>\
-      <input type="checkbox" name="friday" value="F">F<br>\
-      <input type="checkbox" name="saturday" value="St">St<br>\
-      <input type="checkbox" name="sunday" value="S">S<br>\
-      <input type='text' name='hour'><br>\
-      <input type='text' name='minute'><br>\
-      <input type="submit" value="Submit">\
-    </form>\
-    <form action='/submit' method='POST'>\
-      <input type='text' name='fname'><br>\
+    <form action='/submit_scheduler' method='POST'>\
+      <input type='checkbox' name='monday' %s>M<br>\
+      <input type='checkbox' name='tuesday' %s>T<br>\
+      <input type='checkbox' name='wednesday' %s>W<br>\
+      <input type='checkbox' name='thursday' %s>Th<br>\
+      <input type='checkbox' name='friday' %s>F<br>\
+      <input type='checkbox' name='saturday' %s>St<br>\
+      <input type='checkbox' name='sunday' %s>S<br>\
+      <input type='text' name='hour' value='%d'><br>\
+      <input type='text' name='minute' value='%d'><br>\
       <input type='submit' value='Submit'>\
     </form>\
-    <p>This page refreshes every 10 seconds. Click <a href=\"javascript:window.location.reload();\">here</a> to refresh the page now.</p>\
   </body>\
-</html>",
-
-             hr, min % 60, sec % 60,
-             ledText);
+</html>", monday, tuesday, wednesday, thursday, friday, saturday, sunday, my_scheduler._time.hour, my_scheduler._time.minute);
   server.send ( 200, "text/html", html );
   //digitalWrite (4, 1 );
 }
@@ -436,30 +468,54 @@ void handleSubmit() {
   String hour;
   String minute;
   if (server.args() > 0 ) {
+    my_scheduler._week.days.monday = 0;
+    my_scheduler._week.days.tuesday = 0;
+    my_scheduler._week.days.wednesday = 0;
+    my_scheduler._week.days.thursday = 0;
+    my_scheduler._week.days.friday = 0;
+    my_scheduler._week.days.saturday = 0;
+    my_scheduler._week.days.sunday = 0;
     for ( uint8_t i = 0; i < server.args(); i++ ) {
-/*
-      <input type="checkbox" name="monday" value="M">M<br>\
-      <input type="checkbox" name="tuesday" value="T">T<br>\
-      <input type="checkbox" name="wednesday" value="W">W<br>\
-      <input type="checkbox" name="thursday" value="Th">Th<br>\
-      <input type="checkbox" name="friday" value="F">F<br>\
-      <input type="checkbox" name="saturday" value="St">St<br>\
-      <input type="checkbox" name="sunday" value="S">S<br>\
-      <input type='text' name='hour'><br>\
-      <input type='text' name='minute'><br>\
- */
-      
-      if (server.argName(i) == "monday") {
-        display.clearDisplay();
-        display.setCursor(0, 5);
-        display.print("Val:");
-        display.println(server.arg(i));
-        display.display();
+      if (server.argName(i) == "monday"){
+          if (server.arg(i) == "on") my_scheduler._week.days.monday = 1;
       }
+      if (server.argName(i) == "tuesday"){
+          if (server.arg(i) == "on") my_scheduler._week.days.tuesday = 1;
+      }
+      if (server.argName(i) == "wednesday"){
+          if (server.arg(i) == "on") my_scheduler._week.days.wednesday = 1;
+      }
+      if (server.argName(i) == "thursday"){
+          if (server.arg(i) == "on") my_scheduler._week.days.thursday = 1;
+      }
+      if (server.argName(i) == "friday"){
+          if (server.arg(i) == "on") my_scheduler._week.days.friday = 1;
+      }
+      if (server.argName(i) == "saturday"){
+          if (server.arg(i) == "on") my_scheduler._week.days.saturday = 1;
+      }
+      if (server.argName(i) == "sunday"){
+          if (server.arg(i) == "on") my_scheduler._week.days.sunday = 1;
+      }
+      if (server.argName(i) == "hour"){
+          my_scheduler._time.hour = server.arg(i).toInt();
+      }
+      if (server.argName(i) == "minute"){
+          my_scheduler._time.minute = server.arg(i).toInt();
+      }
+
+      save_scheduler(&my_scheduler);
+      
+      Serial.print(server.argName(i));
+      Serial.print("-");
+      Serial.print(server.arg(i));
+      Serial.print("\n");
+      
     }
   }
-  server.sendHeader("Location", String("/"), true);
+  server.sendHeader("Location", String("/setup"), true);
   server.send ( 302, "text/plain", "");;
+  //ESP.restart();
 }
 
 /*-------- NTP code ----------*/

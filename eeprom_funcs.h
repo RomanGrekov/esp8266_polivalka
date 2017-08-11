@@ -19,21 +19,8 @@ const int HOUR_SIZE = 1;
 const int HOUR_ADDR = PW_ADDR + PW_SIZE;
 const int MINUTE_SIZE = 1;
 const int MINUTE_ADDR = HOUR_ADDR + HOUR_SIZE;
-const int MONDAY_SIZE = 1;
-const int MONDAY_ADDR = MINUTE_ADDR + MINUTE_SIZE;
-const int TUESDAY_SIZE = 1;
-const int TUESDAY_ADDR = MONDAY_ADDR + MONDAY_SIZE;
-const int WEDNESDAY_SIZE = 1;
-const int WEDNESDAY_ADDR = TUESDAY_ADDR + TUESDAY_SIZE;
-const int THURSDAY_SIZE = 1;
-const int THURSDAY_ADDR = WEDNESDAY_ADDR + WEDNESDAY_SIZE;
-const int FRIDAY_SIZE = 1;
-const int FRIDAY_ADDR = THURSDAY_ADDR + THURSDAY_SIZE;
-const int SATURDAY_SIZE = 1;
-const int SATURDAY_ADDR = FRIDAY_ADDR + FRIDAY_SIZE;
-const int SUNDAY_SIZE = 1;
-const int SUNDAY_ADDR = SATURDAY_ADDR + SATURDAY_SIZE;
-
+const int DAYS_SIZE = 1;
+const int DAYS_ADDR = MINUTE_ADDR + MINUTE_SIZE;
 
 void init_eeprom(int size);
 char is_wifi_configured(void);
@@ -45,6 +32,33 @@ char save_pw(String pw);
 void get_ssid(char *dest);
 void get_pw(char *dest);
 void clean_eeprom(void);
+void read_scheduler(struct Scheduler *scheduler);
+void save_scheduler(struct Scheduler *scheduler);
 
+typedef union
+{
+  struct bitFields {
+    byte monday:1;
+    byte tuesday:1;
+    byte wednesday:1;
+    byte thursday:1;
+    byte friday:1;
+    byte saturday:1;
+    byte sunday:1;
+    byte empty:1;
+  }days;
+
+  byte all;
+}S_Week;
+
+typedef struct S_Time{
+    unsigned char hour;
+    unsigned char minute;
+ };
+
+typedef struct Scheduler {
+   S_Time _time;
+   S_Week _week;
+};
 
 #endif

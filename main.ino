@@ -52,12 +52,14 @@ bool ledState = false;
 char interruption_happened = 0;
 
 Scheduler my_scheduler;
+AlarmId scheduler_ids[7];
 
 void handleAPSettings(void);
 void handleSubmitAP(void);
 void handleInterrupt(void);
 void handleRoot();
 void handleNotFound();
+void setup_scheduler(struct Scheduler *scheduler);
 
 void Repeats() {
   Serial.println("15 second timer");
@@ -65,6 +67,10 @@ void Repeats() {
 
 void EveningAlarm(){
   Serial.println("Evernyng!!!");
+}
+
+void RunTask(){
+  Serial.println("Task is started!!!");
 }
 
 
@@ -189,6 +195,7 @@ void setup()   {
 
 
     read_scheduler(&my_scheduler);
+    if (my_scheduler._week.all != 0) setup_scheduler(&my_scheduler);
   }
 
   server.begin();
@@ -235,12 +242,11 @@ void loop() {
     display.display();
   }
 */
-/*
+
   if (is_wifi_configured() == 1){
     timePrint();
     Alarm.delay(1000);
   }
-  */
 }
 
 void timePrint () {
@@ -505,12 +511,7 @@ void handleSubmit() {
       }
 
       save_scheduler(&my_scheduler);
-      
-      Serial.print(server.argName(i));
-      Serial.print("-");
-      Serial.print(server.arg(i));
-      Serial.print("\n");
-      
+      setup_scheduler(&my_scheduler);     
     }
   }
   server.sendHeader("Location", String("/setup"), true);
@@ -592,5 +593,29 @@ void printDigits(int digits) {
   if (digits < 10)
     Serial.print('0');
   Serial.print(digits);
+}
+
+void setup_scheduler(struct Scheduler *scheduler){
+  unsigned char hour = my_scheduler._time.hour;
+  unsigned char minute = my_scheduler._time.minute;
+  unsigned char day_flag = 0;
+  int i=6;
+  timeDayOfWeek_t _day;
+
+  for (int i=0; i<7; i++){
+    Alarm.free(scheduler_ids[i]);
+    scheduler_ids[i] = dtINVALID_ALARM_ID;
+  }
+  
+  for (int day = dowSunday; day != dowSaturday; day++){
+    day_flag = ((my_scheduler._week.all >> i) & 0x01);
+    if (day_flag != 0){
+      _day = static_cast<timeDayOfWeek_t>(day);
+      scheduler_ids[i] = Alarm.alarmRepeat(_day, hour, minute,0,RunTask);
+    }
+    else scheduler_ids[i] = dtINVALID_ALARM_ID;
+    i++;
+    if (i == 7) i = 0;
+  }
 }
 

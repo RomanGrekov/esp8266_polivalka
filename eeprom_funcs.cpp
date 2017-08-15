@@ -22,7 +22,6 @@ char is_wifi_configured(void){
   return EEPROM.read(FIRST_RUN_ADDR);
 }
 
-
 void set_wifi_configured(void){
   eeprom_write_byte(FIRST_RUN_ADDR, 1);
 }
@@ -95,5 +94,13 @@ void save_scheduler(struct Scheduler *scheduler){
   eeprom_write_byte(DAYS_ADDR, scheduler->_week.all);
   eeprom_write_byte(HOUR_ADDR, scheduler->_time.hour);
   eeprom_write_byte(MINUTE_ADDR, scheduler->_time.minute);
+}
+
+char poliv_delay_read(void){
+  return EEPROM.read(POLIV_DELAY_ADDR);
+}
+
+void poliv_delay_save(char delay){
+  eeprom_write_byte(POLIV_DELAY_ADDR, delay);
 }
 

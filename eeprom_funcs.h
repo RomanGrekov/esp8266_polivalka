@@ -21,6 +21,8 @@ const int MINUTE_SIZE = 1;
 const int MINUTE_ADDR = HOUR_ADDR + HOUR_SIZE;
 const int DAYS_SIZE = 1;
 const int DAYS_ADDR = MINUTE_ADDR + MINUTE_SIZE;
+const int POLIV_DELAY_SIZE = 1;
+const int POLIV_DELAY_ADDR = DAYS_ADDR + DAYS_SIZE;
 
 void init_eeprom(int size);
 char is_wifi_configured(void);
@@ -34,6 +36,8 @@ void get_pw(char *dest);
 void clean_eeprom(void);
 void read_scheduler(struct Scheduler *scheduler);
 void save_scheduler(struct Scheduler *scheduler);
+void poliv_delay_save(char delay);
+char poliv_delay_read(void);
 
 typedef union
 {

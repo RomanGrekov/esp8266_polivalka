@@ -20,7 +20,7 @@
 // pin 14 - Data/Command select (D/C)
 // pin 2 - LCD chip select (CS)
 // pin 0 - LCD reset (RST)
-Adafruit_PCD8544 display = Adafruit_PCD8544(13, 12, 14, 2, 0);
+Adafruit_PCD8544 display = Adafruit_PCD8544(13, 2, 12, 15, 14);
 
 unsigned long previousMillis = 0;
 const long interval = 1000;
@@ -54,6 +54,8 @@ char interruption_happened = 0;
 Scheduler my_scheduler;
 AlarmId scheduler_ids[7];
 
+char poliv_delay = 0;
+
 void handleAPSettings(void);
 void handleSubmitAP(void);
 void handleInterrupt(void);
@@ -71,6 +73,21 @@ void EveningAlarm(){
 
 void RunTask(){
   Serial.println("Task is started!!!");
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.println("Polivaem...");
+  display.display ();
+  
+  digitalWrite (ledPin, 1);
+  delay(1000 * poliv_delay);
+  digitalWrite (ledPin, 0);
+  Serial.println("Task is finished!!!");
+
+  display.println("Poliv end!");
+  display.display ();
+  delay(2000);
 }
 
 
@@ -123,7 +140,7 @@ void setup()   {
   else{
     get_ssid(ssid);
     get_pw(pw);
-
+    WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, pw);
 
     short int dot_n = 0;
@@ -180,7 +197,7 @@ void setup()   {
   
     // Pin for engine
     pinMode ( ledPin, OUTPUT );
-    digitalWrite (ledPin, 1);
+    digitalWrite (ledPin, 0);
 
     Udp.begin(localPort);
     setSyncProvider(getNtpTime);
@@ -193,7 +210,8 @@ void setup()   {
 
     digitalClockDisplay();
 
-
+    poliv_delay = poliv_delay_read();
+    
     read_scheduler(&my_scheduler);
     if (my_scheduler._week.all != 0) setup_scheduler(&my_scheduler);
   }
@@ -205,7 +223,7 @@ void setup()   {
 
 
 void loop() {
-  dnsServer.processNextRequest();
+  if (is_wifi_configured() != 1) dnsServer.processNextRequest();
   server.handleClient();
 
   if (interruption_happened != 0){
@@ -223,35 +241,20 @@ void loop() {
    delay(2000);
    ESP.restart();
   }
-  /* 
-  if (is_wifi_configured() == 1){
-    unsigned long currentMillis = millis();
-     if ((currentMillis - timeUpdate) < 3000){
-      syncPrint ();
-     }
-  
-     if ((currentMillis - timeUpdate) > updateDelay) {
-      timeClient.updateTime();
-      timeUpdate = millis ();
-     }
-     if ((currentMillis - clockUpdate) >= clockDelay ) {
-      display.clearDisplay();
-      timePrint();
-      clockUpdate = millis ();
-    }
-    display.display();
-  }
-*/
 
   if (is_wifi_configured() == 1){
     timePrint();
-    Alarm.delay(1000);
+    Alarm.delay(10);
   }
 }
 
 void timePrint () {
   display.clearDisplay();
   display.setCursor(0,0);
+  IPAddress ip = WiFi.localIP();
+  display.println(ip);
+
+  display.setCursor(15,15);  
   display.print(day());
   display.print(".");
   display.print(month());
@@ -320,11 +323,11 @@ void handleRoot() {
   char ledText[80];
 
   if (! ledState) {
-    strcpy(ledText, "LED is on. <a href=\"/?led=1\">Turn it OFF!</a>");
+    strcpy(ledText, "LED is OFF. <a href=\"/?led=1\">Turn it ON!</a>");
   }
 
   else {
-    strcpy(ledText, "LED is OFF. <a href=\"/?led=0\">Turn it ON!</a>");
+    strcpy(ledText, "LED is ON. <a href=\"/?led=0\">Turn it OFF!</a>");
   }
 
   ledState = digitalRead(ledPin);
@@ -374,6 +377,7 @@ void handleSetup() {
   char friday[15];
   char saturday[15];
   char sunday[15];
+  
   read_scheduler(&my_scheduler);
   if (my_scheduler._week.days.monday == 1) {
     strcpy(monday, "checked='on'");
@@ -409,6 +413,7 @@ void handleSetup() {
   <body>\
     <h1>ESP8266 scheduler</h1>\
     <form action='/submit_scheduler' method='POST'>\
+      <input type='text' name='poliv_delay' value='%d'>Poliv delay<br>\
       <input type='checkbox' name='monday' %s>M<br>\
       <input type='checkbox' name='tuesday' %s>T<br>\
       <input type='checkbox' name='wednesday' %s>W<br>\
@@ -416,12 +421,12 @@ void handleSetup() {
       <input type='checkbox' name='friday' %s>F<br>\
       <input type='checkbox' name='saturday' %s>St<br>\
       <input type='checkbox' name='sunday' %s>S<br>\
-      <input type='text' name='hour' value='%d'><br>\
-      <input type='text' name='minute' value='%d'><br>\
+      <input type='text' name='hour' value='%d'>Hour<br>\
+      <input type='text' name='minute' value='%d'>Minute<br>\
       <input type='submit' value='Submit'>\
     </form>\
   </body>\
-</html>", monday, tuesday, wednesday, thursday, friday, saturday, sunday, my_scheduler._time.hour, my_scheduler._time.minute);
+</html>", poliv_delay, monday, tuesday, wednesday, thursday, friday, saturday, sunday, my_scheduler._time.hour, my_scheduler._time.minute);
   server.send ( 200, "text/html", html );
   //digitalWrite (4, 1 );
 }
@@ -482,6 +487,10 @@ void handleSubmit() {
     my_scheduler._week.days.saturday = 0;
     my_scheduler._week.days.sunday = 0;
     for ( uint8_t i = 0; i < server.args(); i++ ) {
+      if (server.argName(i) == "poliv_delay"){
+        poliv_delay = server.arg(i).toInt();
+        poliv_delay_save(poliv_delay);
+      }
       if (server.argName(i) == "monday"){
           if (server.arg(i) == "on") my_scheduler._week.days.monday = 1;
       }
